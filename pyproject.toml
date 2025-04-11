@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "excitationsolve"
+authors = [
+    {name = "Jonas Jäger", email = "jojaeger@cs.ubc.ca"},
+    {name = "Thierry N. Kaldenbach", email = "Thierry.Kaldenbach@dlr.de"},
+    {name = "Max Haas", email = "Max.Haas@dlr.de"},
+    {name = "Erik Schultheis", email = "Erik.Schultheis@dlr.de"},
+]
+description = "ExcitationSolve: a fast globally-informed gradient-free optimizer for physically-motivated ansätze constructed of excitation operators"
+readme = "README.md"
+requires-python = ">=3.8"
+keywords = ["optimizer", "quantum computing", "ExcitationSolve", "gradient-free", "excitation operators", "UCCSD", "VQE"]
+license = {file = "LICENSE.txt"}
+classifiers = [
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+dependencies = [
+    "numpy==1.26.4",
+    "matplotlib==3.10.1",
+    "qiskit==1.4.0",
+    "qiskit-nature==0.7.2",
+    "pyscf==2.8.0",
+    "pennylane==0.40.0",
+    "openfermionpyscf==0.5",
+    "aiohttp==3.11.13",
+    "fsspec==2025.2.0",
+    "h5py==3.13.0",
+]
+
+dynamic = ["version"]
+
+[tool.setuptools.dynamic]
+version = {attr = "excitationsolve.info.__version__"}
+
+[tool.setuptools]
+packages = ["excitationsolve"]
+
+[project.urls]
+Repository = "https://github.com/dlr-wf/ExcitationSolve/"
+Issues = "https://github.com/dlr-wf/ExcitationSolve/issues"
