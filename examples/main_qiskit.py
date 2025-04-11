@@ -76,11 +76,20 @@ if __name__ == "__main__":
     )
 
     ansatz = UCCSD(
-        problem.num_spatial_orbitals,
-        problem.num_particles,
-        mapper,
+        num_spatial_orbitals=problem.num_spatial_orbitals,
+        num_particles=problem.num_particles,
+        qubit_mapper=mapper,
+        reps=1,
         initial_state=initial_state,
+        generalized=False,
+        preserve_spin=True,
+        include_imaginary=False,
     )
+    # Fix UCCSD operator order: first doubles, then singles
+    doubles = [op for (op, excitation) in zip(ansatz.operators, ansatz.excitation_list) if len(excitation[0]) == 2]
+    singles = [op for (op, excitation) in zip(ansatz.operators, ansatz.excitation_list) if len(excitation[0]) == 1]
+    ansatz.operators = doubles + singles
+    ansatz._invalidate()
     logging.info("ansatz.num_qubits: %i", ansatz.num_qubits)
 
     optimizers = [
