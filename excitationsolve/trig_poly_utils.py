@@ -93,11 +93,18 @@ def fourier_series_stationary_points(a, b, return_y=False):
 def fourier_series_minimum(a, b, return_y=False):
     """Returns the minimum of the given Fourier series."""
     stat_x, stat_y = fourier_series_stationary_points(a, b, return_y=True)
-    global_min_idx = np.argmin(stat_y)
+    stat_x = np.array(stat_x)
+    stat_y = np.array(stat_y)
+    y_min = stat_y.min()
+    mask = np.isclose(stat_y, y_min)
+    x_close = stat_x[mask]
+    y_close = stat_y[mask]
+    idx_smallest = np.abs(x_close).argmin()  # Choose minimum closest to zero
+
     if return_y:
-        return stat_x[global_min_idx], stat_y[global_min_idx]
+        return x_close[idx_smallest], y_close[idx_smallest]
     else:
-        return stat_x[global_min_idx]
+        return x_close[idx_smallest]
 
 
 ### Visualization helpers: ###
