@@ -39,6 +39,17 @@ params = optimizer.params
 Use the `excitationsolve.excitation_solve_pennylane.excitationsolve_pennylane` function in a VQE loop as used in the [pennylane (dataset) example](./examples/main_pennylane.py) or the [pennylane (pyscf) example](./examples/main_pennylane_pyscf.py.py).
 Alternatively, one can use the `excitationsolve.excitation_solve_step` function to optimize a single parameter. The `excitationsolve.excitation_solve_pennylane.excitationsolve_pennylane` optimizes all parameters, or a subset of them, in the quantum circuit using `excitationsolve.excitation_solve_step`.
 
+### SciPy
+Use the `excitationsolve.ExcitationSolveScipy` class in combination with the `scipy.optimize.minimize` function:
+```python
+excsolve_obj = ExcitationSolveScipy(maxiter=100, tol=1e-10, save_parameters=True)
+optimizer = excsolve_obj.minimize
+res = scipy.optimize.minimize(cost, params, method=optimizer)
+energies = excsolve_obj.energies
+counts = excsolve_obj.nfevs
+```
+
+
 ## Authors
 - Jonas Jäger
 - Thierry N. Kaldenbach
