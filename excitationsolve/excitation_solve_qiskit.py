@@ -1,12 +1,16 @@
 from __future__ import annotations
 from collections.abc import Callable
 import numpy as np
-from qiskit_algorithms.optimizers import (
-    Optimizer,
-    OptimizerSupportLevel,
-    OptimizerResult,
-)
-from qiskit_algorithms.optimizers.optimizer import POINT
+
+try:
+    from qiskit_algorithms.optimizers import (
+        Optimizer,
+        OptimizerSupportLevel,
+        OptimizerResult,
+    )
+    from qiskit_algorithms.optimizers.optimizer import POINT
+except ImportError as e:
+    raise ImportError(f"Install qiskit for using the qiskit_algorithms implementation of ExcitationSolve. {e}")
 from excitationsolve import excitation_solve_step
 
 

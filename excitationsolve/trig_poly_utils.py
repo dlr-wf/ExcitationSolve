@@ -1,8 +1,8 @@
 """
 This utils script implements the direct optimization of a trigonometric polynomial as described in
 
-    Boyd, John. “Computing the Zeros, Maxima and Inflection Points of Chebyshev, Legendre and Fourier Series: 
-    Solving Transcendental Equations by Spectral Interpolation and Polynomial Rootfinding.” 
+    Boyd, John. “Computing the Zeros, Maxima and Inflection Points of Chebyshev, Legendre and Fourier Series:
+    Solving Transcendental Equations by Spectral Interpolation and Polynomial Rootfinding.”
     Journal of Engineering Mathematics 56 (November 2006): 203–19. https://doi.org/10.1007/s10665-006-9087-5.
 
 This is realized via a conversion
@@ -12,12 +12,11 @@ This is realized via a conversion
 
 :Authors:
     Jonas Jaeger <jojaeger@cs.ubc.ca>
-:Date: 
+:Date:
     October 2023
 """
 
 import numpy as np
-import matplotlib.pyplot as plt
 
 
 def fourier_series_from_coeffs(a, b):
@@ -25,12 +24,7 @@ def fourier_series_from_coeffs(a, b):
     degree = len(b)
 
     def f(x):
-        return a[0] + sum(
-            [
-                a[i] * np.cos(i * x) + b[i - 1] * np.sin(i * x)
-                for i in range(1, degree + 1)
-            ]
-        )
+        return a[0] + sum([a[i] * np.cos(i * x) + b[i - 1] * np.sin(i * x) for i in range(1, degree + 1)])
 
     return f
 
@@ -67,11 +61,7 @@ def fourier_series_zeros(a, b, only_real=True):
     """Returns the zeros of the polynomial associated with the given Fourier series."""
     polynomial_zeros = np.roots(fourier_series_to_polynomial(a, b))
     if only_real:
-        zeros = [
-            np.angle(p_zero)
-            for p_zero in polynomial_zeros
-            if np.isclose(np.abs(p_zero), 1)
-        ]  # returns real part only
+        zeros = [np.angle(p_zero) for p_zero in polynomial_zeros if np.isclose(np.abs(p_zero), 1)]  # returns real part only
     else:
         zeros = np.angle(polynomial_zeros) - 1j * np.log(np.abs(polynomial_zeros))
     return zeros
@@ -120,6 +110,11 @@ def print_fourier_series(a, b):
 
 
 def plot_fourier_series(a, b, stat_x=None, stat_y=None, ax=None):
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError as e:
+        raise ImportError(f"Install matplotlib for using the plot_fourier_series function. {e}")
+
     """Plots the stationary points of the given Fourier series."""
     if stat_x is None:
         stat_x, stat_y = fourier_series_stationary_points(a, b, return_y=True)

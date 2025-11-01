@@ -12,14 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Adaptive optimizer"""
+
 import copy
 from typing import Sequence, Callable
 
-# pylint: disable= no-value-for-parameter, protected-access, not-callable
-import pennylane as qml
-from pennylane import numpy as pnp
-from pennylane.tape import QuantumTape
-from pennylane import transform
+try:
+    from pennylane import numpy as pnp
+    from pennylane.tape import QuantumTape
+    from pennylane import transform
+except ImportError as e:
+    raise ImportError(f"Install pennylane for using the pennylane ADAPT implementation. {e}")
 import excitation_solve
 
 
@@ -44,9 +46,7 @@ def append_gate(tape: QuantumTape, params, gates) -> (Sequence[QuantumTape], Cal
         g.data = new_params
         new_operations.append(g)
 
-    new_tape = type(tape)(
-        tape.operations + new_operations, tape.measurements, shots=tape.shots
-    )
+    new_tape = type(tape)(tape.operations + new_operations, tape.measurements, shots=tape.shots)
 
     def null_postprocessing(results):
         """A postprocesing function returned by a transform that only converts the batch of results
@@ -89,9 +89,7 @@ class ExcitationAdaptiveOptimizer:
         """
         return self.step_and_cost(circuit, operator_pool, params_zero=params_zero)[0]
 
-    def step_and_cost(
-        self, circuit, operator_pool, drain_pool=False, params_zero=False
-    ):
+    def step_and_cost(self, circuit, operator_pool, drain_pool=False, params_zero=False):
         r"""Update the circuit with one step of the optimizer, return the corresponding
         objective function value prior to the step, and return the maximum gradient
 
@@ -112,15 +110,10 @@ class ExcitationAdaptiveOptimizer:
             operator_pool = [
                 gate
                 for gate in operator_pool
-                if all(
-                    gate.name != operation.name or gate.wires != operation.wires
-                    for operation in circuit.tape.operations
-                )
+                if all(gate.name != operation.name or gate.wires != operation.wires for operation in circuit.tape.operations)
             ]
 
-        params = pnp.array(
-            [gate.parameters[0] for gate in operator_pool], requires_grad=True
-        )
+        params = pnp.array([gate.parameters[0] for gate in operator_pool], requires_grad=True)
         qnode.func = self._circuit
 
         shifts = pnp.array([0, pnp.pi / 2, -pnp.pi / 2, pnp.pi, -pnp.pi])
@@ -137,9 +130,7 @@ class ExcitationAdaptiveOptimizer:
                 for shift in shifts
             ]
 
-            opt_param, e_excsolve = excitation_solve.excitation_solve_step(
-                shifts, e_shifted
-            )
+            opt_param, e_excsolve = excitation_solve.excitation_solve_step(shifts, e_shifted)
             opt_params.append(opt_param)
             energies.append(e_excsolve)
         energies = pnp.array(energies)

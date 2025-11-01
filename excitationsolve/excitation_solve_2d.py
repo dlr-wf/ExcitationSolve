@@ -1,7 +1,6 @@
 import numpy as np
+import scipy
 import logging
-import pennylane as qml
-import pennylane.numpy as pnp
 
 
 def excitation_solve_2d_step(
@@ -30,15 +29,15 @@ def excitation_solve_2d_step(
     assert len(parameter_variations) >= 5**2, f"The number of parameter variations must be at least 5. Got {len(parameter_variations)}."
     assert parameter_variations.shape[1] == 2, f"The parameter variations must have two columns. Got {parameter_variations.shape[1]}."
     assert len(energy_samples) >= 5**2, f"The number of energy samples must be at least 5. Got {len(energy_samples)}."
-    assert len(parameter_variations) == len(
-        energy_samples
-    ), f"The number of parameter variations and energy samples must match. Got {len(parameter_variations)} and {len(energy_samples)}."
-    assert (
-        parameter_variations[:, 0].max() - parameter_variations[:, 0].min() <= 4 * np.pi
-    ), "The variations of the first parameter must be within one period of the excitation operator (4*pi)."
-    assert (
-        parameter_variations[:, 1].max() - parameter_variations[:, 1].min() <= 4 * np.pi
-    ), "The variations of the second parameter must be within one period of the excitation operator (4*pi)."
+    assert len(parameter_variations) == len(energy_samples), (
+        f"The number of parameter variations and energy samples must match. Got {len(parameter_variations)} and {len(energy_samples)}."
+    )
+    assert parameter_variations[:, 0].max() - parameter_variations[:, 0].min() <= 4 * np.pi, (
+        "The variations of the first parameter must be within one period of the excitation operator (4*pi)."
+    )
+    assert parameter_variations[:, 1].max() - parameter_variations[:, 1].min() <= 4 * np.pi, (
+        "The variations of the second parameter must be within one period of the excitation operator (4*pi)."
+    )
 
     # ### Fit second-order Fourier series / trigonometric polynomial to the energy samples: ###
     # Determine linear equation system with N equations and 5**2 unknowns (N number of samples):
@@ -70,6 +69,8 @@ def excitation_solve_2d_step(
     logging.debug("Solved coefficients: %s", coeffs)
 
     def energy_function(xs):
+        if xs.ndim == 1:
+            xs = np.array([xs])
         xs_1_terms = [
             np.ones(len(xs)),
             np.cos(xs[:, 0] / 2),
@@ -102,61 +103,27 @@ def excitation_solve_2d_step(
         n_nyquist_samples_per_dim = 5
         init_points = np.linspace(-2 * np.pi, 2 * np.pi, n_nyquist_samples_per_dim + 1)[:-1]
 
-        def energy_function_diffable(x):
-            xs_1_terms = [
-                1,
-                pnp.cos(x[0] / 2),
-                pnp.sin(x[0] / 2),
-                pnp.cos(x[0]),
-                pnp.sin(x[0]),
-            ]
-            xs_2_terms = [
-                1,
-                pnp.cos(x[1] / 2),
-                pnp.sin(x[1] / 2),
-                pnp.cos(x[1]),
-                pnp.sin(x[1]),
-            ]
-            A = pnp.array(
-                [xs1_term * xs2_term for xs1_term in xs_1_terms for xs2_term in xs_2_terms],
-                requires_grad=True,
-            ).T
-            ys = A @ pnp.array(coeffs)
-            return ys
-
         min_x = None
         min_y = np.infty
         for x1 in init_points:
             for x2 in init_points:
-                x = pnp.array([x1, x2], requires_grad=True)
-                max_iter = 1_000_000
-                # Use gradient descent with high constant step size that still guarantees convergence:
-                grad_fn = qml.grad(energy_function_diffable)
-                step_size = 1 / (np.sum(np.abs(coeffs)))  # 1/Lipschitz constant, could be improved by a better constant
-                for i in range(max_iter):
-                    # Use gradient descent
-                    grad = grad_fn(x)
-                    update = -grad
-                    x += step_size * update
-                    if np.linalg.norm(update) < 1e-10:
-                        if min_y > (y := energy_function_diffable(x.numpy())):
-                            min_x = x.numpy()
-                            min_y = y.numpy()
-                            # make sure x is in the range [-2*pi, 2*pi] using modulo operation:
-                            min_x = (min_x + 2 * np.pi) % (4 * np.pi) - 2 * np.pi
-                            assert np.isclose(energy_function_diffable(min_x), min_y)
-                        break
-                if i == max_iter - 1:
+                res = scipy.optimize.minimize(energy_function, x0=np.array([x1, x2]), method="BFGS", options={"maxiter": 1_000_000})
+                if res.success:
+                    if res.fun < min_y:
+                        min_x = res.x
+                        min_x = (min_x + 2 * np.pi) % (4 * np.pi) - 2 * np.pi
+                        min_y = res.fun
+
+                    logging.debug(
+                        "Gradient descent optimization converged after %i iterations to point %s.",
+                        res.nit,
+                        res.x,
+                    )
+                else:
                     logging.warning(
                         "Gradient descent optimization did not converge for initial point %s, %s.",
                         x1,
                         x2,
-                    )
-                else:
-                    logging.debug(
-                        "Gradient descent optimization converged after %i iterations to point %s.",
-                        i,
-                        min_x,
                     )
 
     logging.debug("Returning point x=%s, y=%s.", min_x, min_y)
@@ -168,23 +135,26 @@ def excitation_solve_2d_step(
 
 ### Demo: ###
 if __name__ == "__main__":
-    np.random.seed(42)  # For reproducibility and because 42 is the answer to everything
+    # np.random.seed(42)  # For reproducibility and because 42 is the answer to everything
     logging.basicConfig(level=logging.INFO)  # Enable logging
     # Example data:
     parameter_variations_test = np.linspace(-2 * np.pi, 2 * np.pi, 6)[:-1]  # 5 variations of the excitation parameter (for demonstration)
     parameter_2d_variations_test = np.array([[x, y] for x in parameter_variations_test for y in parameter_variations_test])
     energy_samples_test = np.random.rand(len(parameter_2d_variations_test))  # random energies for demonstration
-    print(parameter_2d_variations_test)
-    print(energy_samples_test)
+    # print(parameter_2d_variations_test)
+    # print(energy_samples_test)
 
     # Optimize excitation parameter:
+    print("Performing optimization via scipy optimization...")
     optimized_parameter, optimized_energy = excitation_solve_2d_step(parameter_2d_variations_test, energy_samples_test)
     # Double-check with brute-force optimization:
+    print("Performing optimization via brute-force optimization...")
     optimized_parameter_check, optimized_energy_check = excitation_solve_2d_step(parameter_2d_variations_test, energy_samples_test, non_exact=True)
     print(
         f"Optimized excitation parameter: {optimized_parameter} \nOptimized energy: {optimized_energy}\n\n"
         f"Optimized excitation parameter (brute-force): {optimized_parameter_check} \n"
-        f"Optimized energy (brute-force): {optimized_energy_check}"
+        f"Optimized energy (brute-force): {optimized_energy_check}\n"
+        f"Optimized energy difference: {np.abs(optimized_energy_check - optimized_energy)}"
     )
 
     assert optimized_energy <= optimized_energy_check, "Optimized energy is not minimal."

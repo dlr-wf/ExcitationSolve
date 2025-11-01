@@ -1,6 +1,10 @@
 from excitationsolve import excitation_solve_step
 import numpy as np
-import pennylane as qml
+
+try:
+    import pennylane as qml
+except ImportError as e:
+    raise ImportError(f"Install pennylane for using the pennylane implementation of ExcitationSolve. {e}")
 
 
 def excitationsolve_pennylane(
@@ -37,20 +41,10 @@ def excitationsolve_pennylane(
 
     for param_to_vary in params_to_vary:
         e_shifted = [
-            circuit(
-                np.array(
-                    [
-                        (shift + param if i == param_to_vary else param)
-                        for i, param in enumerate(params_excsolve)
-                    ]
-                )
-            )
-            for shift in shifts
+            circuit(np.array([(shift + param if i == param_to_vary else param) for i, param in enumerate(params_excsolve)])) for shift in shifts
         ]
         param_variations = shifts + params_excsolve[param_to_vary]
-        params_excsolve[param_to_vary], e_excsolve = excitation_solve_step(
-            param_variations, e_shifted
-        )
+        params_excsolve[param_to_vary], e_excsolve = excitation_solve_step(param_variations, e_shifted)
 
         e_excsolve_list.append(e_excsolve)
 
