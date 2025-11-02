@@ -56,7 +56,9 @@ class ExcitationSolveScipy:
         self.param_scaling = param_scaling
 
         self.energies = []
+        self.energies_after_it = []
         self.nfevs = []
+        self.nfevs_after_it = []
         self.params = []
 
     def minimize(self, fun: Callable[[np.ndarray], float], x0: np.ndarray, args=(), **kwargs) -> OptimizeResult:
@@ -69,7 +71,6 @@ class ExcitationSolveScipy:
         energy_at_zero = None
         if self.hf_energy is not None:
             energy_at_zero = self.hf_energy
-        energies_once = [np.inf]
 
         nfev = 0
         for n_iter in range(self.maxiter):
@@ -111,20 +112,21 @@ class ExcitationSolveScipy:
                     self.params.append(params_excsolve)
                 logging.debug("Current ExcitationSolve optimum energy: %s", current_energy_excsolve)
 
-            energies_once.append(current_energy_excsolve)
+            self.energies_after_it.append(current_energy_excsolve)
+            self.nfevs_after_it.append(nfev)
             if n_iter > 0:
                 msg = "Current ExcitationSolve optimum energy after %s iterations: %s | Diff. to prev.: %s" % (
                     n_iter + 1,
-                    energies_once[-1],
-                    np.abs(energies_once[-1] - energies_once[-2]),
+                    self.energies_after_it[-1],
+                    np.abs(self.energies_after_it[-1] - self.energies_after_it[-2]),
                 )
             else:
                 msg = "Current ExcitationSolve optimum energy after %s iteration: %s" % (
                     n_iter + 1,
-                    energies_once[-1],
+                    self.energies_after_it[-1],
                 )
             logging.info(msg)
-            if np.abs(energies_once[-1] - energies_once[-2]) <= self.tol:
+            if len(self.energies_after_it) > 1 and np.abs(self.energies_after_it[-1] - self.energies_after_it[-2]) <= self.tol:
                 break
 
         result = OptimizeResult()
@@ -135,7 +137,9 @@ class ExcitationSolveScipy:
         result.nit = n_iter + 1
 
         self.energies = np.array(self.energies)
+        self.energies_after_it = np.array(self.energies_after_it)
         self.nfevs = np.array(self.nfevs)
+        self.nfevs_after_it = np.array(self.nfevs_after_it)
         self.params = np.array(self.params)
 
         return result
