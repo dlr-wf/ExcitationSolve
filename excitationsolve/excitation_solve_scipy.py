@@ -109,7 +109,7 @@ class ExcitationSolveScipy:
                 self.energies.append(current_energy_excsolve)
                 self.nfevs.append(nfev)
                 if self.save_parameters:
-                    self.params.append(params_excsolve)
+                    self.params.append(params_excsolve.copy())
                 logging.debug("Current ExcitationSolve optimum energy: %s", current_energy_excsolve)
 
             self.energies_after_it.append(current_energy_excsolve)
