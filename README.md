@@ -1,4 +1,4 @@
-# ExcitationSolve [![arXiv](https://img.shields.io/badge/arXiv-2409.05939-blue.svg?logo=arxiv&logoColor=white.svg)](https://arxiv.org/abs/2409.05939) [![DOI](https://zenodo.org/badge/958004975.svg)](https://doi.org/10.5281/zenodo.17457122)
+# ExcitationSolve [![paper](https://img.shields.io/badge/Commun.%20Phys.-Paper-0274b5.svg)](https://www.nature.com/articles/s42005-025-02375-9) [![DOI](https://zenodo.org/badge/958004975.svg)](https://doi.org/10.5281/zenodo.17457122)
 
 An optimization algorithm for ansätze consisting of excitation operators in variational quantum eigensolvers (VQEs).
 
