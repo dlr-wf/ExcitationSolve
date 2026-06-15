@@ -25,18 +25,14 @@ def excitation_solve_step(
 
     parameter_variations = np.array(parameter_variations).flatten()
     energy_samples = np.array(energy_samples).flatten()
-    assert (
-        len(parameter_variations) >= 5
-    ), f"The number of parameter variations must be at least 5. Got {len(parameter_variations)}."
-    assert (
-        len(energy_samples) >= 5
-    ), f"The number of energy samples must be at least 5. Got {len(energy_samples)}."
-    assert len(parameter_variations) == len(
-        energy_samples
-    ), f"The number of parameter variations and energy samples must match. Got {len(parameter_variations)} and {len(energy_samples)}."
-    assert (
-        parameter_variations.max() - parameter_variations.min() <= 4 * np.pi
-    ), "The parameter variations must be within one period of the excitation operator (4*pi)."
+    assert len(parameter_variations) >= 5, f"The number of parameter variations must be at least 5. Got {len(parameter_variations)}."
+    assert len(energy_samples) >= 5, f"The number of energy samples must be at least 5. Got {len(energy_samples)}."
+    assert len(parameter_variations) == len(energy_samples), (
+        f"The number of parameter variations and energy samples must match. Got {len(parameter_variations)} and {len(energy_samples)}."
+    )
+    assert parameter_variations.max() - parameter_variations.min() <= 4 * np.pi, (
+        "The parameter variations must be within one period of the excitation operator (4*pi)."
+    )
 
     # ### Fit second-order Fourier series / trigonometric polynomial to the energy samples: ###
     # Determine linear equation system with N equations and 5 unknowns (N number of samples):
@@ -74,13 +70,7 @@ def excitation_solve_step(
             s1 = np.sin(xs / 2)
             c2 = np.cos(xs)
             s2 = np.sin(xs)
-            return (
-                coeffs[0]
-                + coeffs[1] * c1
-                + coeffs[2] * s1
-                + coeffs[3] * c2
-                + coeffs[4] * s2
-            )
+            return coeffs[0] + coeffs[1] * c1 + coeffs[2] * s1 + coeffs[3] * c2 + coeffs[4] * s2
 
         ### Brute-force optimization of reconstruction
         n_samples = int(1e3)
@@ -93,9 +83,91 @@ def excitation_solve_step(
     # ### Optimize parameter globally in reconstruction (companion matrix method)
     a = [coeffs[0], *coeffs[1::2]]  # cosine coefficients
     b = coeffs[2::2]  # sine coefficients
-    assert (
-        len(a) == len(b) + 1
-    ), f"The number of cosine coefficients must be one more than the number of sine coefficients. Got {len(a)} and {len(b)}."
+    assert len(a) == len(b) + 1, (
+        f"The number of cosine coefficients must be one more than the number of sine coefficients. Got {len(a)} and {len(b)}."
+    )
+    min_x, min_y = fourier_series_minimum(a, b, return_y=True)
+    # rescale to original parameter range since the optimization was performed on the interval [pi, pi] with doubled frequencies instead of [-2*pi, 2*pi]:
+    min_x *= 2
+
+    if return_coeffs:
+        return min_x, min_y, coeffs
+    return min_x, min_y
+
+
+def excitation_solve_step_shared_param(
+    parameter_occ: int,
+    parameter_variations: list | np.ndarray,
+    energy_samples: list | np.ndarray,
+    return_coeffs=False,
+) -> tuple[float, float] | tuple[float, float, np.ndarray]:
+    """
+    Optimizes a single excitation parameter globally given the energies for 4S+1 shifts of this parameters.
+    Recommended to use in a loop for all excitation parameters and perform multiple sweeps through the parameters (potentially shuffled) until convergence.
+
+    Args:
+        parameter_occ: int
+            Number of times S the parameter occures in different excitations, i.e., how many excitations share this parameter.
+        parameter_variations: list or np.ndarray
+            4S+1 variations/shifts of a single excitation parameter.
+        energy_samples: list or np.ndarray
+            4S+1 energy samples for a single excitation parameter varied.
+    Returns:
+        float, float
+            The optimized excitation parameter and the corresponding energy.
+    """
+    assert parameter_occ >= 1, f"The number of parameter occurences S must be at least 1. Got {parameter_occ}."
+    parameter_variations = np.array(parameter_variations).flatten()
+    energy_samples = np.array(energy_samples).flatten()
+    assert len(parameter_variations) >= 4 * parameter_occ + 1, (
+        f"The number of parameter variations must be at least 4S+1={4 * parameter_occ + 1}. Got {len(parameter_variations)}."
+    )
+    assert len(parameter_variations) == len(energy_samples), (
+        f"The number of parameter variations and energy samples must match. Got {len(parameter_variations)} and {len(energy_samples)}."
+    )
+    assert parameter_variations.max() - parameter_variations.min() <= 4 * np.pi, (
+        "The parameter variations must be within one period of the excitation operator (4*pi)."
+    )
+
+    # ### Fit Fourier series / trigonometric polynomial of order 2S to the energy samples: ###
+    # Determine linear equation system with N equations and 2S+1 unknowns (N number of samples):
+    c_lst = []
+    s_lst = []
+    for s in range(2 * parameter_occ):
+        s += 1  # to start at 1
+        c_lst.append(np.cos(parameter_variations / 2 * s))
+        s_lst.append(np.sin(parameter_variations / 2 * s))
+    c_s_lst = [val for pair in zip(c_lst, s_lst) for val in pair]  # interleave c_lst and s_lst
+
+    A = np.array([np.ones(len(energy_samples)), *c_s_lst]).T
+    b = np.array(energy_samples)
+    logging.debug("Linear equation system: \nA: \n%s \n b: %s", np.around(A, 3), b)
+
+    if len(parameter_variations) == 4 * parameter_occ + 1:
+        # ## Exact reconstruction: ##
+        # solve the equation system:
+        coeffs = np.linalg.solve(A, b)
+    else:
+        # ## Fitted reconstruction (least squares fit) for potentially noisy energy values: ##
+        logging.debug(
+            "More than 4S+1 parameter variations or energy samples provided. A least squares fit will be performed instead of an exact reconstruction."
+        )
+        coeffs, residuals, rank_A, s = np.linalg.lstsq(A, b)
+        logging.debug(
+            "Least-squares fit info:\n\tResiduals: %s \n\tRank of A: %i \n\tSingular values of A: %s",
+            residuals,
+            rank_A,
+            s,
+        )
+
+    logging.debug("Solved coefficients: %s", coeffs)
+
+    # ### Optimize parameter globally in reconstruction (companion matrix method)
+    a = [coeffs[0], *coeffs[1::2]]  # cosine coefficients
+    b = coeffs[2::2]  # sine coefficients
+    assert len(a) == len(b) + 1, (
+        f"The number of cosine coefficients must be one more than the number of sine coefficients. Got {len(a)} and {len(b)}."
+    )
     min_x, min_y = fourier_series_minimum(a, b, return_y=True)
     # rescale to original parameter range since the optimization was performed on the interval [pi, pi] with doubled frequencies instead of [-2*pi, 2*pi]:
     min_x *= 2
@@ -113,9 +185,5 @@ if __name__ == "__main__":
     parameter_variations_test = np.array([0, np.pi / 2, -np.pi / 2, np.pi, -np.pi])
     energy_samples_test = np.random.rand(5)  # random energies for demonstration
     # Optimize excitation parameter:
-    optimized_parameter, optimized_energy = excitation_solve_step(
-        parameter_variations_test, energy_samples_test
-    )
-    print(
-        f"Optimized excitation parameter: {optimized_parameter} \nOptimized energy: {optimized_energy}"
-    )
+    optimized_parameter, optimized_energy = excitation_solve_step(parameter_variations_test, energy_samples_test)
+    print(f"Optimized excitation parameter: {optimized_parameter} \nOptimized energy: {optimized_energy}")

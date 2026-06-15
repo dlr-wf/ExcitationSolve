@@ -1,3 +1,3 @@
 from excitationsolve.info import __version__, HOMEPAGE
-from excitationsolve.excitation_solve import excitation_solve_step
+from excitationsolve.excitation_solve import excitation_solve_step, excitation_solve_step_shared_param
 from excitationsolve.excitation_solve_scipy import ExcitationSolveScipy

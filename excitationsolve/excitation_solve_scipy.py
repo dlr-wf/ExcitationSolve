@@ -3,7 +3,7 @@ import logging
 from collections.abc import Callable
 import numpy as np
 from scipy.optimize import OptimizeResult
-from excitationsolve import excitation_solve_step
+from excitationsolve import excitation_solve_step, excitation_solve_step_shared_param
 
 
 class ExcitationSolveScipy:
@@ -55,18 +55,38 @@ class ExcitationSolveScipy:
         self.save_parameters = save_parameters
         self.param_scaling = param_scaling
 
-        self.energies = []
-        self.energies_after_it = []
-        self.nfevs = []
-        self.nfevs_after_it = []
-        self.params = []
+        self.energies = np.array([])
+        self.energies_after_it = np.array([])
+        self.nfevs = np.array([])
+        self.nfevs_after_it = np.array([])
+        self.params = np.array([])
 
     def minimize(self, fun: Callable[[np.ndarray], float], x0: np.ndarray, args=(), **kwargs) -> OptimizeResult:
-        param_dist = 4 * np.pi / self.num_samples
-        shifts = (np.arange(self.num_samples) - self.num_samples // 2) * param_dist
+        """Minimize energy function using the ExcitationSolve optimizer
 
+        Args:
+            fun (Callable[[np.ndarray], float]): Function that evaluates the energy given a set of parameters
+            x0 (np.ndarray): Initial starting point of the optimizer
+            parameter_occ (np.ndarray, optional):  Number of times S the parameters occur in different excitations, i.e.,
+                                                   how many excitations share each parameter.
+                                                   parameter_occ[i] is the number of times the i-th parameter occurs in different excitations.
+                                                   Defaults to [1, 1, ...] (all set to 1).
+
+        Returns:
+            OptimizeResult: Scipy OptimizeResult object
+        """
         params_excsolve = np.array(x0.copy())
         num_params = len(params_excsolve)
+
+        parameter_occ = kwargs.get("parameter_occ")
+        if parameter_occ is None:
+            parameter_occ = np.ones((num_params,))
+        if len(parameter_occ) != num_params:
+            raise ValueError(f"Length of parameter_occ ({len(parameter_occ)}) does not equal number of parameters ({num_params})!")
+        parameter_occ = parameter_occ.astype(int)
+        logging.info(f"{parameter_occ=}")
+        for i, val in enumerate(parameter_occ):
+            logging.info(f"\t{i}-th parameter appears {val} times")
 
         energy_at_zero = None
         if self.hf_energy is not None:
@@ -76,6 +96,10 @@ class ExcitationSolveScipy:
         for n_iter in range(self.maxiter):
             for param_to_vary in range(num_params):
                 e_shifted = []
+
+                num_samples_tmp = max(self.num_samples, 4 * parameter_occ[param_to_vary] + 1)
+                param_dist = 4 * np.pi / num_samples_tmp
+                shifts = (np.arange(num_samples_tmp) - num_samples_tmp // 2) * param_dist
                 for shift in shifts:
                     if shift == 0.0 and energy_at_zero is not None:
                         e_shifted.append(energy_at_zero)
@@ -92,7 +116,9 @@ class ExcitationSolveScipy:
                     )
                     nfev += 1
 
-                params_excsolve[param_to_vary], current_energy_excsolve = excitation_solve_step(
+                logging.debug("Now optimizing parameter number %s which occurs %s times", param_to_vary, parameter_occ[param_to_vary])
+                params_excsolve[param_to_vary], current_energy_excsolve = excitation_solve_step_shared_param(
+                    parameter_occ[param_to_vary],
                     (shifts * self.param_scaling + params_excsolve[param_to_vary]) / self.param_scaling,
                     e_shifted,
                 )
@@ -106,14 +132,14 @@ class ExcitationSolveScipy:
                 # about the optimization progress/convergence
                 # fun(params_excsolve * param_scaling)
 
-                self.energies.append(current_energy_excsolve)
-                self.nfevs.append(nfev)
+                self.energies = np.append(self.energies, current_energy_excsolve)
+                self.nfevs = np.append(self.nfevs, nfev)
                 if self.save_parameters:
-                    self.params.append(params_excsolve.copy())
+                    self.params = np.append(self.params, params_excsolve.copy())
                 logging.debug("Current ExcitationSolve optimum energy: %s", current_energy_excsolve)
 
-            self.energies_after_it.append(current_energy_excsolve)
-            self.nfevs_after_it.append(nfev)
+            self.energies_after_it = np.append(self.energies_after_it, current_energy_excsolve)
+            self.nfevs_after_it = np.append(self.nfevs_after_it, nfev)
             if n_iter > 0:
                 msg = "Current ExcitationSolve optimum energy after %s iterations: %s | Diff. to prev.: %s" % (
                     n_iter + 1,

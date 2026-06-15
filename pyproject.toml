@@ -42,6 +42,19 @@ examples = [
     "h5py==3.13.0",
 ]
 
+test = [
+    "pytest>=9.0",
+    "matplotlib",
+    "tencirchem-ng==2024.10",
+    "pyscf==2.8.0",
+]
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q -v"
+testpaths = ["tests"]
+pythonpath = ["tests"]
+
 
 [tool.setuptools.dynamic]
 version = {attr = "excitationsolve.info.__version__"}
