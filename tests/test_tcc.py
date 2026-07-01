@@ -30,11 +30,11 @@ def test_tcc_h3plus_mult_occurence():
 
     unit = "Angstrom"  # Angstrom or Bohr
     mol_pyscf = gto.M(atom=atom, basis=basis, charge=charge, unit=unit)
-    electrons = mol_pyscf.nelectron
+    _electrons = mol_pyscf.nelectron
     rhf = scf.RHF(mol_pyscf)
-    hf_energy = rhf.kernel()
+    _hf_energy = rhf.kernel()
 
-    mo_occ = rhf.mo_occ
+    _mo_occ = rhf.mo_occ
 
     print(f"Building TCC Hamiltonian for {molname} (early build to use TCC canonicalized MO-coefficients) ...")
     tcc_uccsd = UCCSD(rhf, init_method="zeros", run_hf=False, run_mp2=False, run_ccsd=False, run_fci=True)  # TCC params = -params
@@ -75,8 +75,8 @@ def test_tcc_h3plus_mult_occurence():
     print(f"{tcc_uccsd.param_ids=}")
 
     n_params = len(complete_pool)
-    params = np.zeros(n_params)
-    ex_ops = [(x[: len(x) // 2], x[len(x) // 2 :]) for x in complete_pool]
+    _params = np.zeros(n_params)
+    _ex_ops = [(x[: len(x) // 2], x[len(x) // 2 :]) for x in complete_pool]
 
     #######################
     # Manual optimization
@@ -116,7 +116,7 @@ def test_tcc_h3plus_mult_occurence():
     n_params_tmp = tcc_uccsd.n_params
     initial_params = np.zeros(n_params_tmp)
     res_tcc = scipy.optimize.minimize(cost, initial_params, method=optimizer_func, options=options)
-    params_tcc = res_tcc.x
+    _params_tcc = res_tcc.x
 
     print(f"\nFinal energy difference: {(res_tcc.fun - reference_energy):.2e}")
 

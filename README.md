@@ -49,6 +49,16 @@ energies = excsolve_obj.energies
 counts = excsolve_obj.nfevs
 ```
 
+### Testing
+To run the tests, install the needed dependencies with
+```bash
+uv pip install .[test]
+```
+and execute
+```bash
+pytest
+```
+
 
 ## Authors
 - Jonas Jäger

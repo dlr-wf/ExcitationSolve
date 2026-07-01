@@ -3,6 +3,8 @@ import logging
 from collections.abc import Callable
 import numpy as np
 from scipy.optimize import OptimizeResult
+from scipy.optimize._optimize import _wrap_callback
+from scipy._lib._util import _call_callback_maybe_halt
 from excitationsolve import excitation_solve_step, excitation_solve_step_shared_param
 
 
@@ -14,7 +16,9 @@ class ExcitationSolveScipy:
         ```python
             excsolve_obj = ExcitationSolveScipy(maxiter=100, tol=1e-10, save_parameters=True)
             optimizer = excsolve_obj.minimize
-            res = scipy.optimize.minimize(cost, params, method=optimizer)
+            def callback(xk): # or callback(intermediate_result)
+                print(xk)
+            res = scipy.optimize.minimize(cost, params, method=optimizer, callback=callback, options=dict(parameter_occ=parameter_occ))
             energies = excsolve_obj.energies
             counts = excsolve_obj.nfevs
         ```
@@ -71,10 +75,30 @@ class ExcitationSolveScipy:
                                                    how many excitations share each parameter.
                                                    parameter_occ[i] is the number of times the i-th parameter occurs in different excitations.
                                                    Defaults to [1, 1, ...] (all set to 1).
+            callback (callable, optional): A callable called after each iteration. Supports a callable with the signature::
+
+                                                callback(intermediate_result: OptimizeResult)
+
+                                           where ``intermediate_result`` is a keyword parameter containing an
+                                           `OptimizeResult` with attributes ``x`` and ``fun``, the present values
+                                           of the parameter vector and objective function. Not all attributes of
+                                           `OptimizeResult` may be present. The name of the parameter must be
+                                           ``intermediate_result`` for the callback to be passed an `OptimizeResult`.
+                                           These methods will also terminate if the callback raises ``StopIteration``.
+                                           Also supports a signature like::
+
+                                                callback(xk)
+
+                                           where ``xk`` is the current parameter vector.
+                                           Introspection is used to determine which of the signatures above to
+                                           invoke.
 
         Returns:
             OptimizeResult: Scipy OptimizeResult object
         """
+        callback = kwargs.get("callback")
+        callback = _wrap_callback(callback)
+
         params_excsolve = np.array(x0.copy())
         num_params = len(params_excsolve)
 
@@ -154,6 +178,11 @@ class ExcitationSolveScipy:
             logging.info(msg)
             if len(self.energies_after_it) > 1 and np.abs(self.energies_after_it[-1] - self.energies_after_it[-2]) <= self.tol:
                 break
+
+            if callback is not None:
+                intermediate_result = OptimizeResult(x=np.copy(params_excsolve), fun=current_energy_excsolve)
+                if _call_callback_maybe_halt(callback, intermediate_result):
+                    break
 
         result = OptimizeResult()
         result.x = params_excsolve
