@@ -1,4 +1,4 @@
-# ExcitationSolve [![paper](https://img.shields.io/badge/Commun.%20Phys.-Paper-0274b5.svg)](https://www.nature.com/articles/s42005-025-02375-9) [![DOI](https://zenodo.org/badge/958004975.svg)](https://doi.org/10.5281/zenodo.17457122)
+# ExcitationSolve [![paper](https://img.shields.io/badge/Commun.%20Phys.-Paper-0274b5.svg)](https://www.nature.com/articles/s42005-025-02375-9) [![DOI](https://zenodo.org/badge/958004975.svg)](https://doi.org/10.5281/zenodo.17457122) [![PyPI](https://img.shields.io/pypi/v/excitationsolve.svg?color=0274b5&label=PyPI)](https://pypi.org/project/excitationsolve/)
 
 An optimization algorithm for ansätze consisting of excitation operators in variational quantum eigensolvers (VQEs).
 
@@ -14,6 +14,11 @@ VQE convergence for different molecules and optimizers, including ExcitationSolv
 </h1>
 
 ## Installation
+ExcitationSolve is available on [PyPI](https://pypi.org/project/excitationsolve/):
+```
+pip install excitationsolve
+```
+Alternatively, install directly from GitHub:
 ```
 pip install git+https://github.com/dlr-wf/ExcitationSolve.git
 ```
@@ -44,7 +49,10 @@ Use the `excitationsolve.ExcitationSolveScipy` class in combination with the `sc
 ```python
 excsolve_obj = ExcitationSolveScipy(maxiter=100, tol=1e-10, save_parameters=True)
 optimizer = excsolve_obj.minimize
-res = scipy.optimize.minimize(cost, params, method=optimizer)
+def callback(xk): # or callback(intermediate_result)
+    print(xk)
+options = dict(parameter_occ=parameter_occ) # optional, use if parameters occur multiple times in the ansatz
+res = scipy.optimize.minimize(cost, params, method=optimizer, callback=callback, options=options)
 energies = excsolve_obj.energies
 counts = excsolve_obj.nfevs
 ```
