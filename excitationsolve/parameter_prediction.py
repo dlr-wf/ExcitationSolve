@@ -8,8 +8,7 @@ period-pi curve
 
 with a = (E_HF - E_exc) / 2 and b = <HF|H|Phi>. The minimiser of this curve has
 the closed form theta = -1/2 * arctan2(-b, -a). `optimal_theta` evaluates a
-and b from the molecular integrals and returns this exact angle together with
-its first-order (EN2 / MP2) linearisations.
+and b from the molecular integrals and returns this exact angle.
 
 The module is self-contained: it only needs a converged PySCF RHF object and the
 four excitation indices (in TCC/Qiskit-sorted spin-orbital order).
@@ -47,7 +46,7 @@ def _transform_integrals_to_mo(mf):
     return h1_mo, eri_mo, occ_indices
 
 
-def _determinant_energy(h1_mo, eri_mo, occ_indices, MP2=False):
+def _determinant_energy(h1_mo, eri_mo, occ_indices):
     """
     Compute the energy of a single Slater determinant in MO basis.
 
@@ -83,10 +82,7 @@ def _determinant_energy(h1_mo, eri_mo, occ_indices, MP2=False):
         for q in occ:
             e_two += eri_mo[p, q, q, p] - eri_mo[p, q, p, q]
 
-    if MP2:
-        return e_one
-    else:
-        return e_one + 0.5 * e_two
+    return e_one + 0.5 * e_two
 
 
 def _apply_double_excitation(occ_indices, i, j, a, b):
@@ -116,7 +112,7 @@ def _apply_double_excitation(occ_indices, i, j, a, b):
     return sorted(occ_set)
 
 
-def _compute_a_b(h1_mo, h2_mo, occ_indices, i, j, k, l, MP2=False):
+def _compute_a_b(h1_mo, h2_mo, occ_indices, i, j, k, l):
     """
     Compute the parameters a and b for the two-level effective Hamiltonian
     defined by the HF determinant and a doubly excited determinant.
@@ -153,11 +149,11 @@ def _compute_a_b(h1_mo, h2_mo, occ_indices, i, j, k, l, MP2=False):
     b : float
     """
     # HF determinant energy
-    e_hf = _determinant_energy(h1_mo, h2_mo, occ_indices, MP2)
+    e_hf = _determinant_energy(h1_mo, h2_mo, occ_indices)
 
     # Excited determinant: remove (i, j), add (k, l)
     occ_exc = _apply_double_excitation(occ_indices, k, l, i, j)
-    e_exc = _determinant_energy(h1_mo, h2_mo, occ_exc, MP2)
+    e_exc = _determinant_energy(h1_mo, h2_mo, occ_exc)
 
     a_val = 0.5 * (e_hf - e_exc)
 
@@ -254,7 +250,7 @@ def _block_to_interleaved(idx, no, nv):
     return 2 * spatial + spin
 
 
-def optimal_theta_pyscf(mf: pyscf.scf.hf.RHF, excitation_indices: list[int]):
+def optimal_theta_pyscf(mf: pyscf.scf.hf.RHF, excitation_indices: list[int]) -> tuple[float, float]:
     """
     High-level convenience function to compute the optimal VQE angle theta_opt
     for a given double excitation in an RHF reference.
@@ -283,7 +279,7 @@ def optimal_theta_pyscf(mf: pyscf.scf.hf.RHF, excitation_indices: list[int]):
     return optimal_theta(h1_mo, eri_mo, occ_spatial, excitation_indices)
 
 
-def optimal_theta(h1: np.ndarray, eri: np.ndarray, occ_spatial: list[int], excitation_indices: list[int]):
+def optimal_theta(h1: np.ndarray, eri: np.ndarray, occ_spatial: list[int], excitation_indices: list[int]) -> tuple[float, float]:
     """
     High-level convenience function to compute the optimal VQE angle theta_opt
     for a given double excitation in an RHF reference.
