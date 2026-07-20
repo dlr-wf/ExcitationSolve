@@ -17,8 +17,6 @@ For more information, see https://arxiv.org/abs/2602.10776
 """
 
 import numpy as np
-import pyscf
-from pyscf import ao2mo
 
 
 def _transform_integrals_to_mo(mf):
@@ -31,6 +29,10 @@ def _transform_integrals_to_mo(mf):
     eri_mo : (nmo, nmo, nmo, nmo)
     occ_indices : list[int]
     """
+    try:
+        from pyscf import ao2mo
+    except ImportError as e:
+        raise ImportError("pyscf is required for _transform_integrals_to_mo().") from e
     mo = mf.mo_coeff
     hcore_ao = mf.get_hcore()
     h1_mo = mo.T @ hcore_ao @ mo
@@ -250,7 +252,7 @@ def _block_to_interleaved(idx, no, nv):
     return 2 * spatial + spin
 
 
-def optimal_theta_pyscf(mf: pyscf.scf.hf.RHF, excitation_indices: list[int]) -> tuple[float, float]:
+def optimal_theta_pyscf(mf, excitation_indices: list[int]) -> tuple[float, float]:
     """
     High-level convenience function to compute the optimal VQE angle theta_opt
     for a given double excitation in an RHF reference.
@@ -273,6 +275,10 @@ def optimal_theta_pyscf(mf: pyscf.scf.hf.RHF, excitation_indices: list[int]) -> 
     delta_E : float
         Maximum energy impact a + sqrt(a^2 + b^2).
     """
+    try:
+        import pyscf
+    except ImportError as e:
+        raise ImportError("pyscf is required for optimal_theta_pyscf(). ") from e
     # Transform integrals to MO basis
     h1_mo, eri_mo, occ_spatial = _transform_integrals_to_mo(mf)
 
