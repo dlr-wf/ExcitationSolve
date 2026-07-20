@@ -17,9 +17,11 @@ For more information, see https://arxiv.org/abs/2602.10776
 """
 
 import numpy as np
-import pyscf
-from pyscf import ao2mo
-
+try:
+    import pyscf
+    from pyscf import ao2mo
+except ImportError:
+    pass
 
 def _transform_integrals_to_mo(mf):
     """
