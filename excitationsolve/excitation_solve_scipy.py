@@ -193,8 +193,8 @@ class ExcitationSolveScipy:
 
         self.energies = np.array(self.energies)
         self.energies_after_it = np.array(self.energies_after_it)
-        self.nfevs = np.array(self.nfevs)
-        self.nfevs_after_it = np.array(self.nfevs_after_it)
+        self.nfevs = np.array(self.nfevs, dtype=int)
+        self.nfevs_after_it = np.array(self.nfevs_after_it, dtype=int)
         self.params = np.array(self.params)
 
         return result
