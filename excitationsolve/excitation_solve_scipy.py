@@ -51,6 +51,8 @@ class ExcitationSolveScipy:
         """
         super().__init__()
 
+        if int(maxiter) <= 0:
+            raise ValueError(f"{int(maxiter)=} is smaller or equal to zero but needs to be larger than zero!")
         self.maxiter = int(maxiter)
         self.tol = tol
         assert num_samples >= 5, f"Number of samples needs to be greater or equal to 5 but is {num_samples}!"
@@ -117,6 +119,8 @@ class ExcitationSolveScipy:
             energy_at_zero = self.hf_energy
 
         nfev = 0
+        converged = False
+        callback_stopped = False
         for n_iter in range(self.maxiter):
             for param_to_vary in range(num_params):
                 e_shifted = []
@@ -165,23 +169,18 @@ class ExcitationSolveScipy:
             self.energies_after_it = np.append(self.energies_after_it, current_energy_excsolve)
             self.nfevs_after_it = np.append(self.nfevs_after_it, nfev)
             if n_iter > 0:
-                msg = "Current ExcitationSolve optimum energy after %s iterations: %s | Diff. to prev.: %s" % (
-                    n_iter + 1,
-                    self.energies_after_it[-1],
-                    np.abs(self.energies_after_it[-1] - self.energies_after_it[-2]),
-                )
+                msg = f"Current ExcitationSolve optimum energy after {n_iter + 1} iterations: {self.energies_after_it[-1]} | Diff. to prev.: {np.abs(self.energies_after_it[-1] - self.energies_after_it[-2])}"
             else:
-                msg = "Current ExcitationSolve optimum energy after %s iteration: %s" % (
-                    n_iter + 1,
-                    self.energies_after_it[-1],
-                )
+                msg = f"Current ExcitationSolve optimum energy after {n_iter + 1} iteration: {self.energies_after_it[-1]}"
             logging.info(msg)
             if len(self.energies_after_it) > 1 and np.abs(self.energies_after_it[-1] - self.energies_after_it[-2]) <= self.tol:
+                converged = True
                 break
 
             if callback is not None:
                 intermediate_result = OptimizeResult(x=np.copy(params_excsolve), fun=current_energy_excsolve)
                 if _call_callback_maybe_halt(callback, intermediate_result):
+                    callback_stopped = True
                     break
 
         result = OptimizeResult()
@@ -190,6 +189,22 @@ class ExcitationSolveScipy:
         result.nfev = nfev
         result.njev = None
         result.nit = n_iter + 1
+        result.success = True
+        result.status = 0
+        result.message = f"ExcitationSolve optimization converged successfully after {n_iter + 1} iterations."
+        if not converged:
+            if n_iter + 1 == self.maxiter and callback_stopped:
+                result.success = False
+                result.status = 99
+                result.message = f"ExcitationSolve optimization stopped by callback function that raised `StopIteration` and reached maximum number of iterations ({self.maxiter})."
+            elif n_iter + 1 == self.maxiter:
+                result.success = False
+                result.status = 1
+                result.message = f"ExcitationSolve optimization reached maximum number of iterations ({self.maxiter}) and did not converge."
+            elif callback_stopped:
+                result.success = False
+                result.status = 99
+                result.message = "ExcitationSolve optimization stopped by callback function that raised `StopIteration`."
 
         self.energies = np.array(self.energies)
         self.energies_after_it = np.array(self.energies_after_it)

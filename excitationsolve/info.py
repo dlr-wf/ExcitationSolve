@@ -1,3 +1,3 @@
-__version__ = "2.2.5"  # MAJOR.MINOR.PATCH, like in https://semver.org/
+__version__ = "2.3.0"  # MAJOR.MINOR.PATCH, like in https://semver.org/
 
 HOMEPAGE = "https://github.com/dlr-wf/ExcitationSolve"  # GitHub page
