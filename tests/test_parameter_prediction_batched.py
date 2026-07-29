@@ -13,7 +13,12 @@ import numpy as np
 import pytest
 from pyscf import gto, scf
 
-from excitationsolve import optimal_thetas, optimal_thetas_pyscf
+from excitationsolve import (
+    optimal_theta,
+    optimal_theta_pyscf,
+    optimal_thetas,
+    optimal_thetas_pyscf,
+)
 from excitationsolve.parameter_prediction import (
     _apply_double_excitation,
     _block_to_interleaved,
@@ -22,8 +27,10 @@ from excitationsolve.parameter_prediction import (
 
 
 # ---------------------------------------------------------------------------
-# Oracle: the pre-batching implementation, moved here unchanged when the public
-# scalar entry points were removed. Materialises the full spin-orbital tensor.
+# Oracle: the pre-batching implementation, kept here verbatim. Materialises the full
+# spin-orbital tensor. Deliberately NOT imported from the package -- the package's
+# optimal_theta is now a thin wrapper around optimal_thetas, so comparing against it
+# would be tautological.
 # ---------------------------------------------------------------------------
 def _determinant_energy(h1_mo, eri_mo, occ_indices):
     """
@@ -184,7 +191,7 @@ def _build_spin_orbital_integrals(h1, h2):
     return h1_so, h2_so
 
 
-def optimal_theta(h1: np.ndarray, eri: np.ndarray, occ_spatial: list[int], excitation_indices: list[int]) -> tuple[float, float]:
+def _reference_optimal_theta(h1: np.ndarray, eri: np.ndarray, occ_spatial: list[int], excitation_indices: list[int]) -> tuple[float, float]:
     """
     High-level convenience function to compute the optimal VQE angle theta_opt
     for a given double excitation in an RHF reference.
@@ -268,9 +275,16 @@ def _pool(mf):
     nso = 2 * (no + nv)
     occ_block = [i for i in range(nso) if i < no or no + nv <= i < 2 * no + nv]
     vir_block = [i for i in range(nso) if i not in occ_block]
+    no_ = no
+    nv_ = nv
+
+    def spin(idx):
+        return _block_to_interleaved(idx, no_, nv_) % 2
+
     return [(v0, v1, o0, o1)
             for o0, o1 in itertools.combinations(occ_block, 2)
-            for v0, v1 in itertools.combinations(vir_block, 2)]
+            for v0, v1 in itertools.combinations(vir_block, 2)
+            if spin(v0) == spin(o0) and spin(v1) == spin(o1)]
 
 
 def _valid_pool(mf):
@@ -279,7 +293,7 @@ def _valid_pool(mf):
     valid = []
     for indices in _pool(mf):
         try:
-            optimal_theta(h1, eri, occ_spatial, indices)
+            _reference_optimal_theta(h1, eri, occ_spatial, indices)
         except AssertionError:
             continue
         valid.append(indices)
@@ -288,33 +302,29 @@ def _valid_pool(mf):
 
 @pytest.mark.parametrize("basis", ["sto-3g", "6-31g"])
 def test_batched_matches_single_bitwise(basis):
+    """The optimisation is only defensible if it changes nothing."""
     mf = _molecule(basis)
     h1, eri, occ_spatial = _transform_integrals_to_mo(mf)
     pool = _valid_pool(mf)
     assert pool, "no valid excitations to compare"
 
-    expected = {tuple(i): optimal_theta(h1, eri, occ_spatial, i) for i in pool}
-    for indices, theta, delta_E in optimal_thetas(h1, eri, occ_spatial, pool):
-        theta_ref, delta_E_ref = expected[indices]
+    batched = optimal_thetas(h1, eri, occ_spatial, pool)
+    assert len(batched) == len(pool)
+    for indices, (theta, delta_E) in zip(pool, batched):
+        theta_ref, delta_E_ref = _reference_optimal_theta(h1, eri, occ_spatial, indices)
         assert theta == theta_ref
         assert delta_E == delta_E_ref
 
 
-def test_sorted_by_decreasing_delta_e():
+def test_results_follow_input_order():
+    """Results are returned unsorted, aligned 1:1 with the excitations passed in."""
     mf = _molecule("sto-3g")
-    predictions = optimal_thetas_pyscf(mf, _valid_pool(mf))
-    impacts = [p.delta_E for p in predictions]
-    assert impacts == sorted(impacts, reverse=True)
-
-
-def test_ordering_is_reproducible():
-    """Degenerate excitations must not reshuffle between calls -- a caller truncating to
-    the top-N would otherwise get a different N each run."""
-    mf = _molecule("sto-3g")
+    h1, eri, occ_spatial = _transform_integrals_to_mo(mf)
     pool = _valid_pool(mf)
-    first = [p.excitation_indices for p in optimal_thetas_pyscf(mf, pool)]
-    second = [p.excitation_indices for p in optimal_thetas_pyscf(mf, list(reversed(pool)))]
-    assert first == second
+
+    forward = optimal_thetas(h1, eri, occ_spatial, pool)
+    reversed_ = optimal_thetas(h1, eri, occ_spatial, list(reversed(pool)))
+    assert reversed_ == list(reversed(forward))
 
 
 def test_pyscf_wrapper_matches_integral_api():
@@ -324,14 +334,46 @@ def test_pyscf_wrapper_matches_integral_api():
     assert optimal_thetas_pyscf(mf, pool) == optimal_thetas(h1, eri, occ_spatial, pool)
 
 
-def test_returns_named_tuple_and_unpacks():
+def test_returns_plain_tuples():
     mf = _molecule("sto-3g")
-    prediction = optimal_thetas_pyscf(mf, _valid_pool(mf))[0]
-    indices, theta, delta_E = prediction
-    assert prediction.excitation_indices == indices
-    assert prediction.theta == theta
-    assert prediction.delta_E == delta_E
+    theta, delta_E = optimal_thetas_pyscf(mf, _valid_pool(mf))[0]
+    assert isinstance(theta, float) and isinstance(delta_E, float)
+
+
+def test_spin_non_conserving_excitation_is_rejected():
+    """The inlined integral lookup drops the spin guard, so the precondition is asserted."""
+    mf = _molecule("sto-3g")
+    h1, eri, occ_spatial = _transform_integrals_to_mo(mf)
+    no = len(occ_spatial)
+    nv = h1.shape[0] - no
+    bad = next((v0, v1, o0, o1)
+               for o0 in range(2 * no + nv) for o1 in range(2 * no + nv)
+               for v0 in range(2 * (no + nv)) for v1 in range(2 * (no + nv))
+               if _is_bad(h1, occ_spatial, no, nv, v0, v1, o0, o1))
+    with pytest.raises(AssertionError):
+        optimal_thetas(h1, eri, occ_spatial, [bad])
+
+
+def _is_bad(h1, occ_spatial, no, nv, v0, v1, o0, o1):
+    occ_so = {2 * o for o in occ_spatial} | {2 * o + 1 for o in occ_spatial}
+    try:
+        a, b, c, d = (_block_to_interleaved(i, no, nv) for i in (v0, v1, o0, o1))
+    except Exception:
+        return False
+    if not (c in occ_so and d in occ_so and a not in occ_so and b not in occ_so):
+        return False
+    return (a % 2) != (c % 2) or (b % 2) != (d % 2)
 
 
 def test_empty_pool():
     assert optimal_thetas_pyscf(_molecule("sto-3g"), []) == []
+
+
+def test_single_excitation_wrappers_match_reference():
+    """The scalar entry points keep their original signature and return shape."""
+    mf = _molecule("sto-3g")
+    h1, eri, occ_spatial = _transform_integrals_to_mo(mf)
+    for indices in _valid_pool(mf):
+        expected = _reference_optimal_theta(h1, eri, occ_spatial, indices)
+        assert optimal_theta(h1, eri, occ_spatial, indices) == expected
+        assert optimal_theta_pyscf(mf, indices) == expected

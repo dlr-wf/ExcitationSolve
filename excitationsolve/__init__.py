@@ -2,7 +2,8 @@ from excitationsolve.info import __version__, HOMEPAGE
 from excitationsolve.excitation_solve import excitation_solve_step, excitation_solve_step_shared_param
 from excitationsolve.excitation_solve_scipy import ExcitationSolveScipy
 from excitationsolve.parameter_prediction import (
+    optimal_theta,
+    optimal_theta_pyscf,
     optimal_thetas,
     optimal_thetas_pyscf,
-    ExcitationPrediction,
 )

@@ -16,8 +16,6 @@ four excitation indices (in TCC/Qiskit-sorted spin-orbital order).
 For more information, see https://arxiv.org/abs/2602.10776
 """
 
-from typing import NamedTuple
-
 import numpy as np
 
 
@@ -110,30 +108,12 @@ def _block_to_interleaved(idx, no, nv):
 #   h2_so[p, q, r, s] = h2[p//2, s//2, q//2, r//2]
 #                       if spin(p) == spin(s) and spin(q) == spin(r) else 0
 # ---------------------------------------------------------------------------
-class ExcitationPrediction(NamedTuple):
-    """One scored excitation. Tuple-compatible, so it unpacks as
-    ``excitation_indices, theta, delta_E``."""
-
-    excitation_indices: tuple[int, ...]
-    theta: float
-    delta_E: float
-
-
-def _h2_so_element(h2: np.ndarray, p: int, q: int, r: int, s: int) -> float:
-    """Single spin-orbital integral <pq|rs> read from the spatial tensor."""
-    if (p % 2) != (s % 2) or (q % 2) != (r % 2):
-        return 0.0
-    return h2[p // 2, s // 2, q // 2, r // 2]
-
-
 def _determinant_energy_spatial(h1: np.ndarray, h2: np.ndarray, occ_so: list[int]) -> float:
     """_determinant_energy evaluated on the spatial integrals.
 
     The Coulomb term h2_so[p,q,q,p] is always spin-allowed; the exchange term
     h2_so[p,q,p,q] survives only for equal spin -- which is what makes the
-    opposite-spin contribution vanish in the tensor formulation. The accumulation
-    order matches _determinant_energy so results are bitwise identical (floating
-    point addition is not associative; a vectorised sum agrees only to ~1 ulp).
+    opposite-spin contribution vanish in the tensor formulation.
     """
     occ = np.asarray(occ_so, dtype=int)
     spatial = occ // 2
@@ -155,16 +135,19 @@ def _compute_a_b_spatial(h1, h2, occ_so, i, j, k, l, e_reference):
     occ_exc = _apply_double_excitation(occ_so, k, l, i, j)
     a_val = 0.5 * (e_reference - _determinant_energy_spatial(h1, h2, occ_exc))
 
-    b_val = _h2_so_element(h2, i, j, k, l)
+    # caller passes spin-conserving excitations so the direct term is allowed
+    # (spin(i)==spin(l), spin(j)==spin(k)), and the exchange terms only run when all four
+    # spin-orbitals share a spin. optimal_thetas asserts that precondition.
+    b_val = h2[i // 2, l // 2, j // 2, k // 2]
     same_spin = np.unique([index % 2 for index in (k, l, i, j)]).size == 1
     if same_spin:
-        b_val -= 0.5 * (_h2_so_element(h2, j, i, k, l) + _h2_so_element(h2, i, j, l, k))
+        b_val -= 0.5 * (h2[j // 2, l // 2, i // 2, k // 2] + h2[i // 2, k // 2, j // 2, l // 2])
 
     return a_val, float(np.real(b_val))
 
 
 def optimal_thetas(h1: np.ndarray, eri: np.ndarray, occ_spatial: list[int],
-                   excitation_indices_list) -> list[ExcitationPrediction]:
+                   excitation_indices_list) -> list[tuple[float, float]]:
     """Optimal angles for many double excitations at once.
 
     Parameters
@@ -180,28 +163,23 @@ def optimal_thetas(h1: np.ndarray, eri: np.ndarray, occ_spatial: list[int],
 
     Returns
     -------
-    list[ExcitationPrediction]
-        ``(excitation_indices, theta, delta_E)`` sorted by decreasing ``delta_E``.
+    list[tuple[float, float]]
+        ``(theta, delta_E)`` per excitation, in the SAME ORDER as the input. Each entry is
+        what the previous per-excitation implementation returned for that excitation.
 
     Notes
     -----
-    ``delta_E`` is compared at full machine precision -- deliberately not rounded, so no
-    genuinely distinct excitations are merged. Exact ties (bitwise-equal ``delta_E``) fall
-    back to the excitation indices, so the ordering is a pure function of the integrals
-    passed in.
+    Results are returned unsorted, in input order, and ``delta_E`` is not rounded. Callers
+    that rank the pool and truncate to the top-N should be aware that integrals from a
+    BLAS-threaded AO->MO transform (e.g. :func:`pyscf.ao2mo`) differ by ~1e-11 between thread
+    counts -- enough to swap symmetry-degenerate excitations, whose ``delta_E`` are equal
+    analytically but not bitwise. If the selected set must be identical across processes (for
+    instance to keep a circuit structure, and any cache keyed on it, stable), quantise when
+    sorting::
 
-    That is NOT the same as being reproducible across runs. Integrals produced by a
-    BLAS-threaded AO->MO transform (e.g. :func:`pyscf.ao2mo`) differ by ~1e-11 between
-    thread counts, which is enough to swap the order of symmetry-degenerate excitations --
-    their ``delta_E`` are equal analytically but not bitwise. A caller that truncates to the
-    top-N and needs the SAME N every time (e.g. to keep a circuit structure, and any cache
-    keyed on it, stable across processes) must therefore quantise on its own, for instance::
+        order = sorted(range(len(dE)), key=lambda n: (round(dE[n], 8), pool[n]), reverse=True)
 
-        predictions.sort(key=lambda p: (round(p.delta_E, 8), p.excitation_indices),
-                         reverse=True)
-
-    Rounding is left to the caller because the noise originates upstream, in the integrals,
-    not in this function.
+    Excitations must be spin-conserving; this is asserted.
     """
     no = len(occ_spatial)
     nv = h1.shape[0] - no
@@ -216,6 +194,8 @@ def optimal_thetas(h1: np.ndarray, eri: np.ndarray, occ_spatial: list[int],
 
         assert o0 in occ_so and o1 in occ_so, "expected last two indices occupied"
         assert v0 not in occ_so and v1 not in occ_so, "expected first two indices virtual"
+        assert (v0 % 2) == (o0 % 2) and (v1 % 2) == (o1 % 2), (
+            "expected a spin-conserving excitation")
 
         # Same relabelling as optimal_theta: pair i<->l (=o0,v0) and j<->k (=o1,v1)
         # so the direct integral is spin-allowed.
@@ -226,18 +206,12 @@ def optimal_thetas(h1: np.ndarray, eri: np.ndarray, occ_spatial: list[int],
                                             e_reference)
         theta_opt = -0.5 * np.arctan2(-b_val, -a_val)
         delta_E = a_val + np.sqrt(a_val**2 + b_val**2)
-        predictions.append(ExcitationPrediction(tuple(excitation_indices), theta_opt, delta_E))
+        predictions.append((theta_opt, delta_E))
 
-    # Largest energy impact first. delta_E is compared at full machine precision --
-    # deliberately not rounded, so no genuinely distinct excitations are merged. Exact
-    # ties (bitwise-equal delta_E, e.g. symmetry-degenerate excitations) fall back to the
-    # index tuple, keeping the order reproducible across runs, thread counts and BLAS
-    # builds: a caller truncating to the top-N always gets the same N.
-    predictions.sort(key=lambda prediction: (-prediction.delta_E, prediction.excitation_indices))
     return predictions
 
 
-def optimal_thetas_pyscf(mf, excitation_indices_list) -> list[ExcitationPrediction]:
+def optimal_thetas_pyscf(mf, excitation_indices_list) -> list[tuple[float, float]]:
     """Batched :func:`optimal_theta_pyscf`: one AO->MO transform for the whole pool.
 
     Parameters
@@ -249,8 +223,61 @@ def optimal_thetas_pyscf(mf, excitation_indices_list) -> list[ExcitationPredicti
 
     Returns
     -------
-    list[ExcitationPrediction]
-        ``(excitation_indices, theta, delta_E)`` sorted by decreasing ``delta_E``.
+    list[tuple[float, float]]
+        ``(theta, delta_E)`` per excitation, in the SAME ORDER as the input.
     """
     h1_mo, eri_mo, occ_spatial = _transform_integrals_to_mo(mf)
     return optimal_thetas(h1_mo, eri_mo, occ_spatial, excitation_indices_list)
+
+
+def optimal_theta(h1: np.ndarray, eri: np.ndarray, occ_spatial: list[int],
+                  excitation_indices: list[int]) -> tuple[float, float]:
+    """Optimal angle and energy impact for a SINGLE double excitation.
+
+    Thin wrapper around :func:`optimal_thetas`. Prefer the batched function when scoring more
+    than one excitation: it shares the reference-determinant energy across the pool, so calling
+    this in a loop repeats that work per excitation.
+
+    Parameters
+    ----------
+    h1 : np.ndarray
+        One-electron matrix elements.
+    eri : np.ndarray
+        Two-electron matrix elements in chemist order.
+    occ_spatial : list[int]
+        Spatial orbital indices occupied in the reference state.
+    excitation_indices : list[int] or tuple[int, int, int, int]
+        Four spin-orbital indices in TCC/Qiskit-sorted format.
+
+    Returns
+    -------
+    theta_opt : float
+        Exact optimal angle (in radians) minimising E(theta).
+    delta_E : float
+        Maximum energy impact a + sqrt(a^2 + b^2).
+    """
+    return optimal_thetas(h1, eri, occ_spatial, [excitation_indices])[0]
+
+
+def optimal_theta_pyscf(mf, excitation_indices: list[int]) -> tuple[float, float]:
+    """Optimal angle and energy impact for a SINGLE double excitation, from a PySCF object.
+
+    Thin wrapper around :func:`optimal_thetas_pyscf`. Prefer the batched function when scoring
+    more than one excitation: it performs the AO->MO transform once for the whole pool, so
+    calling this in a loop repeats that transform per excitation.
+
+    Parameters
+    ----------
+    mf : pyscf.scf.hf.RHF
+        Converged PySCF mean-field object defining the molecular Hamiltonian.
+    excitation_indices : list[int] or tuple[int, int, int, int]
+        Four spin-orbital indices in TCC/Qiskit-sorted format.
+
+    Returns
+    -------
+    theta_opt : float
+        Exact optimal angle (in radians) minimising E(theta).
+    delta_E : float
+        Maximum energy impact a + sqrt(a^2 + b^2).
+    """
+    return optimal_thetas_pyscf(mf, [excitation_indices])[0]
