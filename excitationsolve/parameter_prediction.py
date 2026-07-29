@@ -16,6 +16,8 @@ four excitation indices (in TCC/Qiskit-sorted spin-orbital order).
 For more information, see https://arxiv.org/abs/2602.10776
 """
 
+from collections.abc import Sequence
+
 import numpy as np
 
 
@@ -93,36 +95,19 @@ def _block_to_interleaved(idx, no, nv):
     return 2 * spatial + spin
 
 
-
-# ---------------------------------------------------------------------------
-# Batched prediction. Performing parameter prediction on a batch of operators instead
-# of individually reduces the overhead of computing integrals and the HF state again and again.  
-#
-# The integrals are also indexed directly instead of being expanded into a full
-# spin-orbital tensor. _build_spin_orbital_integrals allocates (2n)^4 entries via
-# a 6-deep Python loop -- 4.3 GB and ~1.3e8 iterations at n=76 -- while every
-# quantity needed here is a handful of specific elements.
-#
-# Conventions match _build_spin_orbital_integrals exactly:
-#   spin-orbital index p -> spatial p // 2, spin p % 2
-#   h2_so[p, q, r, s] = h2[p//2, s//2, q//2, r//2]
-#                       if spin(p) == spin(s) and spin(q) == spin(r) else 0
-# ---------------------------------------------------------------------------
-def _determinant_energy_spatial(h1: np.ndarray, h2: np.ndarray, occ_so: list[int]) -> float:
+def _determinant_energy_spatial(h1: np.ndarray, h2: np.ndarray, occ_so: Sequence[int]) -> float:
     """_determinant_energy evaluated on the spatial integrals.
 
     The Coulomb term h2_so[p,q,q,p] is always spin-allowed; the exchange term
     h2_so[p,q,p,q] survives only for equal spin -- which is what makes the
     opposite-spin contribution vanish in the tensor formulation.
     """
-    occ = np.asarray(occ_so, dtype=int)
-    spatial = occ // 2
+    spatial = np.asarray(occ_so, dtype=int) // 2
 
     e_one = np.sum(h1[spatial, spatial])
-
     e_two = 0.0
-    for p in occ:
-        for q in occ:
+    for p in occ_so:
+        for q in occ_so:
             coulomb = h2[p // 2, p // 2, q // 2, q // 2]
             exchange = h2[p // 2, q // 2, q // 2, p // 2] if (p % 2) == (q % 2) else 0.0
             e_two += coulomb - exchange
@@ -130,24 +115,48 @@ def _determinant_energy_spatial(h1: np.ndarray, h2: np.ndarray, occ_so: list[int
     return e_one + 0.5 * e_two
 
 
-def _compute_a_b_spatial(h1, h2, occ_so, i, j, k, l, e_reference):
+def _compute_a_b_spatial(h1: np.ndarray, h2: np.ndarray, occ_so: Sequence[int],
+                         i: int, j: int, k: int, l: int,
+                         e_reference: float) -> tuple[float, float]:
     """_compute_a_b on the spatial integrals, reusing the reference energy."""
     occ_exc = _apply_double_excitation(occ_so, k, l, i, j)
     a_val = 0.5 * (e_reference - _determinant_energy_spatial(h1, h2, occ_exc))
 
-    # caller passes spin-conserving excitations so the direct term is allowed
-    # (spin(i)==spin(l), spin(j)==spin(k)), and the exchange terms only run when all four
-    # spin-orbitals share a spin. optimal_thetas asserts that precondition.
+    # b = <HF|H|Phi>, matching the derivation
+    #     2b = Re(2 h_ijkl - [h_jikl + h_ijlk] delta_{mu nu})
+    # i.e. b = Re( h_ijkl - 1/2 (h_jikl + h_ijlk) delta_{mu nu} ).
+    # The spin-orbital elements are read straight from the spatial integrals via
+    # h2_so[p,q,r,s] = h2[p//2, s//2, q//2, r//2]; the spin guard of the tensor form is not
+    # needed because optimal_thetas validates that the excitation is spin-conserving and
+    # relabelled so the direct term is allowed (spin(i)==spin(l), spin(j)==spin(k)). The two
+    # exchange terms then only contribute when all four spin-orbitals share a spin, which is
+    # exactly the delta_{mu nu}.
     b_val = h2[i // 2, l // 2, j // 2, k // 2]
-    same_spin = np.unique([index % 2 for index in (k, l, i, j)]).size == 1
+    same_spin = k % 2 == l % 2 == i % 2 == j % 2
     if same_spin:
         b_val -= 0.5 * (h2[j // 2, l // 2, i // 2, k // 2] + h2[i // 2, k // 2, j // 2, l // 2])
 
+    # np.real implements the Re() of the derivation above -- it is part of the formula, not a
+    # defensive cast. It is a no-op for real MO integrals, but float() alone would silently
+    # discard an imaginary part (with a ComplexWarning) if complex orbitals were ever used.
     return a_val, float(np.real(b_val))
 
 
-def optimal_thetas(h1: np.ndarray, eri: np.ndarray, occ_spatial: list[int],
-                   excitation_indices_list) -> list[tuple[float, float]]:
+
+# ---------------------------------------------------------------------------
+# Batched prediction. Performing parameter prediction on a batch of operators instead
+# of individually reduces the overhead of computing integrals and the HF state again and again.  
+#
+# The integrals are also indexed directly instead of being expanded into a full
+# spin-orbital tensor.
+#
+# Index convention:
+#   spin-orbital index p -> spatial p // 2, spin p % 2
+#   h2_so[p, q, r, s] = h2[p//2, s//2, q//2, r//2]
+#                       if spin(p) == spin(s) and spin(q) == spin(r) else 0
+# ---------------------------------------------------------------------------
+def optimal_thetas(h1: np.ndarray, eri: np.ndarray, occ_spatial: Sequence[int],
+                   excitation_indices_list: Sequence[Sequence[int]]) -> list[tuple[float, float]]:
     """Optimal angles for many double excitations at once.
 
     Parameters
@@ -156,10 +165,11 @@ def optimal_thetas(h1: np.ndarray, eri: np.ndarray, occ_spatial: list[int],
         One-electron matrix elements.
     eri : np.ndarray
         Two-electron matrix elements in chemist order.
-    occ_spatial : list[int]
+    occ_spatial : Sequence[int]
         Spatial orbital indices occupied in the reference state.
-    excitation_indices_list : iterable of 4-index sequences
-        One entry per excitation, each in TCC/Qiskit-sorted format.
+    excitation_indices_list : Sequence[Sequence[int]]
+        One entry per excitation, each four spin-orbital indices in TCC/Qiskit-sorted format.
+        Tuples, lists and 2-D arrays are all accepted.
 
     Returns
     -------
@@ -179,28 +189,33 @@ def optimal_thetas(h1: np.ndarray, eri: np.ndarray, occ_spatial: list[int],
 
         order = sorted(range(len(dE)), key=lambda n: (round(dE[n], 8), pool[n]), reverse=True)
 
-    Excitations must be spin-conserving; this is asserted.
+    Excitations must be spin-conserving; violations raise ``ValueError``.
     """
     no = len(occ_spatial)
     nv = h1.shape[0] - no
-    occ_so = sorted({2 * occ for occ in occ_spatial} | {2 * occ + 1 for occ in occ_spatial})
+    occ_so = sorted(2 * occ + spin for occ in occ_spatial for spin in (0, 1))
+    occ_so_set = set(occ_so)   # membership only; the sorted list keeps the summation order
 
     # Excitation-independent: evaluate once for the whole pool.
     e_reference = _determinant_energy_spatial(h1, eri, occ_so)
 
     predictions = []
     for excitation_indices in excitation_indices_list:
-        v0, v1, o0, o1 = (_block_to_interleaved(idx, no, nv) for idx in excitation_indices)
+        # TCC/Qiskit order is (virt, virt, occ, occ), sorted within each pair, which guarantees
+        # spin(virt_0) == spin(occ_0) and spin(virt_1) == spin(occ_1). The equation labels
+        # (i, j, k, l) must pair i<->l and j<->k on the SAME spin for the direct integral
+        # h_ijkl to be spin-allowed, so the first virtual is l and the second is k -- the swap
+        # is applied here in the unpacking.
+        l_vir, k_vir, i_occ, j_occ = (_block_to_interleaved(idx, no, nv)
+                                      for idx in excitation_indices)
 
-        assert o0 in occ_so and o1 in occ_so, "expected last two indices occupied"
-        assert v0 not in occ_so and v1 not in occ_so, "expected first two indices virtual"
-        assert (v0 % 2) == (o0 % 2) and (v1 % 2) == (o1 % 2), (
-            "expected a spin-conserving excitation")
-
-        # Same relabelling as optimal_theta: pair i<->l (=o0,v0) and j<->k (=o1,v1)
-        # so the direct integral is spin-allowed.
-        i_occ, j_occ = o0, o1
-        k_vir, l_vir = v1, v0
+        if i_occ not in occ_so_set or j_occ not in occ_so_set:
+            raise ValueError(f"expected last two indices occupied: {excitation_indices}")
+        if l_vir in occ_so_set or k_vir in occ_so_set:
+            raise ValueError(f"expected first two indices virtual: {excitation_indices}")
+        if (l_vir % 2) != (i_occ % 2) or (k_vir % 2) != (j_occ % 2):
+            raise ValueError("expected a spin-conserving excitation (TCC sorting pairs the "
+                             f"first virtual with the first occupied): {excitation_indices}")
 
         a_val, b_val = _compute_a_b_spatial(h1, eri, occ_so, i_occ, j_occ, k_vir, l_vir,
                                             e_reference)
@@ -211,15 +226,18 @@ def optimal_thetas(h1: np.ndarray, eri: np.ndarray, occ_spatial: list[int],
     return predictions
 
 
-def optimal_thetas_pyscf(mf, excitation_indices_list) -> list[tuple[float, float]]:
+def optimal_thetas_pyscf(mf,
+                         excitation_indices_list: Sequence[Sequence[int]]
+                         ) -> list[tuple[float, float]]:
     """Batched :func:`optimal_theta_pyscf`: one AO->MO transform for the whole pool.
 
     Parameters
     ----------
     mf : pyscf.scf.hf.RHF
         Converged PySCF mean-field object defining the molecular Hamiltonian.
-    excitation_indices_list : iterable of 4-index sequences
-        One entry per excitation, each in TCC/Qiskit-sorted format.
+    excitation_indices_list : Sequence[Sequence[int]]
+        One entry per excitation, each four spin-orbital indices in TCC/Qiskit-sorted format.
+        Tuples, lists and 2-D arrays are all accepted.
 
     Returns
     -------
@@ -230,8 +248,8 @@ def optimal_thetas_pyscf(mf, excitation_indices_list) -> list[tuple[float, float
     return optimal_thetas(h1_mo, eri_mo, occ_spatial, excitation_indices_list)
 
 
-def optimal_theta(h1: np.ndarray, eri: np.ndarray, occ_spatial: list[int],
-                  excitation_indices: list[int]) -> tuple[float, float]:
+def optimal_theta(h1: np.ndarray, eri: np.ndarray, occ_spatial: Sequence[int],
+                  excitation_indices: Sequence[int]) -> tuple[float, float]:
     """Optimal angle and energy impact for a SINGLE double excitation.
 
     Thin wrapper around :func:`optimal_thetas`. Prefer the batched function when scoring more
@@ -244,9 +262,9 @@ def optimal_theta(h1: np.ndarray, eri: np.ndarray, occ_spatial: list[int],
         One-electron matrix elements.
     eri : np.ndarray
         Two-electron matrix elements in chemist order.
-    occ_spatial : list[int]
+    occ_spatial : Sequence[int]
         Spatial orbital indices occupied in the reference state.
-    excitation_indices : list[int] or tuple[int, int, int, int]
+    excitation_indices : Sequence[int]
         Four spin-orbital indices in TCC/Qiskit-sorted format.
 
     Returns
@@ -259,7 +277,7 @@ def optimal_theta(h1: np.ndarray, eri: np.ndarray, occ_spatial: list[int],
     return optimal_thetas(h1, eri, occ_spatial, [excitation_indices])[0]
 
 
-def optimal_theta_pyscf(mf, excitation_indices: list[int]) -> tuple[float, float]:
+def optimal_theta_pyscf(mf, excitation_indices: Sequence[int]) -> tuple[float, float]:
     """Optimal angle and energy impact for a SINGLE double excitation, from a PySCF object.
 
     Thin wrapper around :func:`optimal_thetas_pyscf`. Prefer the batched function when scoring
@@ -270,7 +288,7 @@ def optimal_theta_pyscf(mf, excitation_indices: list[int]) -> tuple[float, float
     ----------
     mf : pyscf.scf.hf.RHF
         Converged PySCF mean-field object defining the molecular Hamiltonian.
-    excitation_indices : list[int] or tuple[int, int, int, int]
+    excitation_indices : Sequence[int]
         Four spin-orbital indices in TCC/Qiskit-sorted format.
 
     Returns

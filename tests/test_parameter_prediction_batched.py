@@ -340,29 +340,32 @@ def test_returns_plain_tuples():
     assert isinstance(theta, float) and isinstance(delta_E, float)
 
 
-def test_spin_non_conserving_excitation_is_rejected():
-    """The inlined integral lookup drops the spin guard, so the precondition is asserted."""
+# H4/STO-3G block layout (no=2, nv=2): 0,1 beta-occ | 2,3 beta-virt | 4,5 alpha-occ |
+# 6,7 alpha-virt. (2, 6, 0, 4) is a well-formed spin-conserving excitation; the cases below
+# each violate exactly one precondition.
+@pytest.mark.parametrize("indices, reason", [
+    ((2, 6, 4, 0), "spin-conserving"),      # v0 beta but o0 alpha
+    ((2, 6, 3, 4), "occupied"),             # o0 is a virtual
+    ((0, 6, 1, 4), "virtual"),              # v0 is occupied
+])
+def test_malformed_excitation_is_rejected(indices, reason):
+    """Preconditions raise ValueError, not AssertionError.
+
+    The inlined integral lookup drops the spin guard that the tensor construction applied
+    implicitly, so a violation would otherwise return a plausible wrong number. `python -O`
+    strips asserts, hence an explicit raise.
+    """
     mf = _molecule("sto-3g")
     h1, eri, occ_spatial = _transform_integrals_to_mo(mf)
-    no = len(occ_spatial)
-    nv = h1.shape[0] - no
-    bad = next((v0, v1, o0, o1)
-               for o0 in range(2 * no + nv) for o1 in range(2 * no + nv)
-               for v0 in range(2 * (no + nv)) for v1 in range(2 * (no + nv))
-               if _is_bad(h1, occ_spatial, no, nv, v0, v1, o0, o1))
-    with pytest.raises(AssertionError):
-        optimal_thetas(h1, eri, occ_spatial, [bad])
+    with pytest.raises(ValueError, match=reason):
+        optimal_thetas(h1, eri, occ_spatial, [indices])
 
 
-def _is_bad(h1, occ_spatial, no, nv, v0, v1, o0, o1):
-    occ_so = {2 * o for o in occ_spatial} | {2 * o + 1 for o in occ_spatial}
-    try:
-        a, b, c, d = (_block_to_interleaved(i, no, nv) for i in (v0, v1, o0, o1))
-    except Exception:
-        return False
-    if not (c in occ_so and d in occ_so and a not in occ_so and b not in occ_so):
-        return False
-    return (a % 2) != (c % 2) or (b % 2) != (d % 2)
+def test_valid_excitation_is_accepted():
+    """Guards the parametrisation above: the reference excitation must NOT raise."""
+    mf = _molecule("sto-3g")
+    h1, eri, occ_spatial = _transform_integrals_to_mo(mf)
+    assert len(optimal_thetas(h1, eri, occ_spatial, [(2, 6, 0, 4)])) == 1
 
 
 def test_empty_pool():
