@@ -7,10 +7,12 @@ period-pi curve
     E(theta) = const + a (1 - cos 2theta) + b sin 2theta,
 
 with a = (E_HF - E_exc) / 2 and b = <HF|H|Phi>. The minimiser of this curve has
-the closed form theta = -1/2 * arctan2(-b, -a). 
+the closed form theta = -1/2 * arctan2(-b, -a).
 
 For more information, see https://arxiv.org/abs/2602.10776
 """
+
+from __future__ import annotations
 
 from collections.abc import Sequence
 from typing import Any
@@ -55,9 +57,7 @@ def _transform_integrals_to_mo(mf: Any) -> tuple[np.ndarray, np.ndarray, list[in
     return h1_mo, eri_mo, occ_indices
 
 
-def _excited_energy(h_diag: np.ndarray, G: np.ndarray, S: np.ndarray,
-                                e_reference: float,
-                                i: int, j: int, k: int, l: int) -> float:
+def _excited_energy(h_diag: np.ndarray, G: np.ndarray, S: np.ndarray, e_reference: float, i: int, j: int, k: int, l: int) -> float:
     """Calculates E_excited(Phi) = <Phi|H|Phi>, Phi being the excited Slater determinant, from
     the reference energy E(HF) = <HF|H|HF>.
 
@@ -104,15 +104,14 @@ def _excited_energy(h_diag: np.ndarray, G: np.ndarray, S: np.ndarray,
     e_excited : float
         Excited state determinant energy.
     """
-    return e_reference + (h_diag[k] + h_diag[l] - h_diag[i] - h_diag[j]
-                          + S[k] + S[l] - S[i] - S[j]
-                          - G[i, k] - G[i, l] - G[j, k] - G[j, l]
-                          + G[i, j] + G[k, l])
+    return e_reference + (
+        h_diag[k] + h_diag[l] - h_diag[i] - h_diag[j] + S[k] + S[l] - S[i] - S[j] - G[i, k] - G[i, l] - G[j, k] - G[j, l] + G[i, j] + G[k, l]
+    )
 
 
-def _compute_a_b(h2: np.ndarray, h_diag: np.ndarray, G: np.ndarray, S: np.ndarray,
-                         i: int, j: int, k: int, l: int,
-                         e_reference: float) -> tuple[float, float]:
+def _compute_a_b(
+    h2: np.ndarray, h_diag: np.ndarray, G: np.ndarray, S: np.ndarray, i: int, j: int, k: int, l: int, e_reference: float
+) -> tuple[float, float]:
     """Two-level parameters a and b of one double excitation, from the spatial integrals.
 
     The excitation empties the occupied spin-orbitals (i, j) and fills the virtual ones (k, l)
@@ -182,8 +181,9 @@ def _block_to_interleaved(idx: int, no: int, nv: int) -> int:
     return 2 * spatial + spin
 
 
-def optimal_thetas(h1: np.ndarray, eri: np.ndarray, occ_spatial: Sequence[int],
-                   excitation_indices_list: Sequence[Sequence[int]]) -> list[tuple[float, float]]:
+def optimal_thetas(
+    h1: np.ndarray, eri: np.ndarray, occ_spatial: Sequence[int], excitation_indices_list: Sequence[Sequence[int]]
+) -> list[tuple[float, float]]:
     """Optimal angles for many double excitations at once.
 
     Parameters
@@ -216,7 +216,7 @@ def optimal_thetas(h1: np.ndarray, eri: np.ndarray, occ_spatial: Sequence[int],
     no = len(occ_spatial)
     nv = h1.shape[0] - no
     occ_so = sorted(2 * occ + spin for occ in occ_spatial for spin in (0, 1))
-    occ_so_set = set(occ_so)   # membership only; the sorted list keeps the summation order
+    occ_so_set = set(occ_so)  # membership only; the sorted list keeps the summation order
 
     # Excitation-independent: build the one- and two-body tables once for the whole pool.
     nso = 2 * h1.shape[0]
@@ -239,19 +239,18 @@ def optimal_thetas(h1: np.ndarray, eri: np.ndarray, occ_spatial: Sequence[int],
         # (i, j, k, l) must pair i<->l and j<->k on the SAME spin for the direct integral
         # h_ijkl to be spin-allowed, so the first virtual is l and the second is k -- the swap
         # is applied here in the unpacking.
-        l_vir, k_vir, i_occ, j_occ = (_block_to_interleaved(idx, no, nv)
-                                      for idx in excitation_indices)
+        l_vir, k_vir, i_occ, j_occ = (_block_to_interleaved(idx, no, nv) for idx in excitation_indices)
 
         if i_occ not in occ_so_set or j_occ not in occ_so_set:
             raise ValueError(f"expected last two indices occupied: {excitation_indices}")
         if l_vir in occ_so_set or k_vir in occ_so_set:
             raise ValueError(f"expected first two indices virtual: {excitation_indices}")
         if (l_vir % 2) != (i_occ % 2) or (k_vir % 2) != (j_occ % 2):
-            raise ValueError("expected a spin-conserving excitation (TCC sorting pairs the "
-                             f"first virtual with the first occupied): {excitation_indices}")
+            raise ValueError(
+                f"expected a spin-conserving excitation (TCC sorting pairs the first virtual with the first occupied): {excitation_indices}"
+            )
 
-        a_val, b_val = _compute_a_b(eri, h_diag, G, S, i_occ, j_occ, k_vir, l_vir,
-                                            e_reference)
+        a_val, b_val = _compute_a_b(eri, h_diag, G, S, i_occ, j_occ, k_vir, l_vir, e_reference)
         theta_opt = -0.5 * np.arctan2(-b_val, -a_val)
         delta_E = a_val + np.sqrt(a_val**2 + b_val**2)
         predictions.append((theta_opt, delta_E))
@@ -259,8 +258,7 @@ def optimal_thetas(h1: np.ndarray, eri: np.ndarray, occ_spatial: Sequence[int],
     return predictions
 
 
-def optimal_theta(h1: np.ndarray, eri: np.ndarray, occ_spatial: Sequence[int],
-                  excitation_indices: Sequence[int]) -> tuple[float, float]:
+def optimal_theta(h1: np.ndarray, eri: np.ndarray, occ_spatial: Sequence[int], excitation_indices: Sequence[int]) -> tuple[float, float]:
     """Optimal angle and energy impact for a SINGLE double excitation.
 
     Thin wrapper around :func:`optimal_thetas`. Prefer the batched function when scoring more
@@ -288,9 +286,7 @@ def optimal_theta(h1: np.ndarray, eri: np.ndarray, occ_spatial: Sequence[int],
     return optimal_thetas(h1, eri, occ_spatial, [excitation_indices])[0]
 
 
-def optimal_thetas_pyscf(mf: Any,
-                         excitation_indices_list: Sequence[Sequence[int]]
-                         ) -> list[tuple[float, float]]:
+def optimal_thetas_pyscf(mf: Any, excitation_indices_list: Sequence[Sequence[int]]) -> list[tuple[float, float]]:
     """Batched :func:`optimal_theta_pyscf`: one AO->MO transform for the whole pool.
 
     Parameters

@@ -49,16 +49,16 @@ Use the `excitationsolve.ExcitationSolveScipy` class in combination with the `sc
 ```python
 excsolve_obj = ExcitationSolveScipy(maxiter=100, tol=1e-10, save_parameters=True)
 optimizer = excsolve_obj.minimize
-def callback(xk): # or callback(intermediate_result)
+def callback(xk):  # or callback(intermediate_result)
     print(xk)
-options = dict(parameter_occ=parameter_occ) # optional, use if parameters occur multiple times in the ansatz
+options = dict(parameter_occ=parameter_occ)  # optional, use if parameters occur multiple times in the ansatz
 res = scipy.optimize.minimize(cost, params, method=optimizer, callback=callback, options=options)
 energies = excsolve_obj.energies
 counts = excsolve_obj.nfevs
 ```
 
 ### Optimal parameters of double excitations w.r.t. the Hartree-Fock state
-Use `exitationsolve.optimal_theta` and `excitationsolve.optimal_theta_pyscf` to calculate analytic optimal parameter values for individual double excitations when applied to the Hartree-Fock reference state. Both functions return the optimal parameter and the energy difference to the Hartree-Fock energy. The optimal parameter is defined as $\theta^*=\argmin_\theta\bra{\mathrm{HF}}U^\dagger(\theta) H U(\theta)\ket{\mathrm{HF}}$ where $H$ is the electronic structure Hamiltonian, $U(\theta)$ is **one** double excitation, and $\ket{\mathrm{HF}}$ is the Hartree-Fock state. In [Haas et al., 2026](https://doi.org/10.48550/arXiv.2602.10776) it has been shown that initializing doubles in their respective optimal parameter and appending them to the ansatz in order of energy impact is an efficient operator selection and warm-start strategy.
+Use `exitationsolve.optimal_theta` and `excitationsolve.optimal_theta_pyscf` to calculate analytic optimal parameter values for individual double excitations when applied to the Hartree-Fock reference state. Use `exitationsolve.optimal_thetas` and `excitationsolve.optimal_thetas_pyscf` when screening multiple double excitations at once. All functions return the optimal parameter and the energy difference to the Hartree-Fock energy. The optimal parameter is defined as $\theta^*=\argmin_\theta\bra{\mathrm{HF}}U^\dagger(\theta) H U(\theta)\ket{\mathrm{HF}}$ where $H$ is the electronic structure Hamiltonian, $U(\theta)$ is **one** double excitation, and $\ket{\mathrm{HF}}$ is the Hartree-Fock state. In [Haas et al., 2026](https://doi.org/10.48550/arXiv.2602.10776) it has been shown that initializing doubles in their respective optimal parameter and appending them to the ansatz in order of energy impact is an efficient operator selection and warm-start strategy.
 
 ### Testing
 To run the tests, install the needed dependencies with
