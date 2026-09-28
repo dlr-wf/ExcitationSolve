@@ -247,9 +247,10 @@ def _compute_a_b_single(
     a_val = 0.5 * (e_reference - e_excited)
 
     i_, k_ = i // 2, k // 2
-    occ_ = occ // 2
-    same_spin = (occ % 2) == (i % 2)
-    b_val = -(h1[i_, k_] + h2[i_, k_, occ_, occ_].sum() - np.where(same_spin, h2[i_, occ_, occ_, k_], 0.0).sum())
+    p = occ[occ != i]
+    p_ = p // 2
+    same_spin = (p % 2) == (i % 2)
+    b_val = -(h1[i_, k_] + h2[p_, p_, i_, k_].sum() - np.where(same_spin, h2[p_, k_, i_, p_], 0.0).sum())
 
     return a_val, float(np.real(b_val))
 
