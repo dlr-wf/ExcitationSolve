@@ -10,7 +10,7 @@ from excitationsolve import excitation_solve_step, excitation_solve_step_shared_
 
 class ExcitationSolveScipy:
     def __init__(self, maxiter, tol=1e-12, num_samples=5, hf_energy=None, save_parameters=False, param_scaling=0.5):
-        """The ExcitationSolve optimizer as a SciPy optimizer that can be given to the scipy.optimize.minimize function.
+        r"""The ExcitationSolve optimizer as a SciPy optimizer that can be given to the scipy.optimize.minimize function.
 
         Usage:
         ```python
@@ -66,6 +66,7 @@ class ExcitationSolveScipy:
         self.nfevs = np.array([])
         self.nfevs_after_it = np.array([])
         self.params = np.array([])
+        self.params_lst = []
 
     def minimize(self, fun: Callable[[np.ndarray], float], x0: np.ndarray, args=(), **kwargs) -> OptimizeResult:
         """Minimize energy function using the ExcitationSolve optimizer
@@ -163,7 +164,7 @@ class ExcitationSolveScipy:
                 self.energies = np.append(self.energies, current_energy_excsolve)
                 self.nfevs = np.append(self.nfevs, nfev)
                 if self.save_parameters:
-                    self.params = np.append(self.params, params_excsolve.copy())
+                    self.params_lst.append(params_excsolve.copy())
                 logging.debug("Current ExcitationSolve optimum energy: %s", current_energy_excsolve)
 
             self.energies_after_it = np.append(self.energies_after_it, current_energy_excsolve)
@@ -210,6 +211,6 @@ class ExcitationSolveScipy:
         self.energies_after_it = np.array(self.energies_after_it)
         self.nfevs = np.array(self.nfevs, dtype=int)
         self.nfevs_after_it = np.array(self.nfevs_after_it, dtype=int)
-        self.params = np.array(self.params)
+        self.params = np.array(self.params_lst)
 
         return result
